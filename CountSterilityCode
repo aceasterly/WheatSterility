@@ -1,0 +1,258 @@
+/*Zero-Inflated and Hurdle Models for Sterility Data*/
+/*Hybrid wheat project*/
+/*by AC Easterly and WW Stroup*/ 
+/*13 February 2017*/
+/*updated 2019 02 01 to include two random statements for nlmixed models to efficiently manage pseudoreps*/
+/*Documentation*/
+/* This program will allow us to evaluate the counts of seed from the heads we bagged in the crossing block in 2015 and 2016. These data are counts and thus do not fit well with a normal distribution or a transformation and the normal approximation/LawLarge#s/Central Limit Theorem. Moreover, they have a higher than normal frequency of zeroes as opposed to standard count data of Poisson or Negative-Binomial distributions. The variance is likely inflated for this dataset and we do in fact observe over-dispersion.	So, utilize zero-inflated and hurdle models to get a handle on the inflation probability (and extrapolate this to the true proportion of sterility). Can also examine if we see genotype differences in the number of seeds (aka the amount of non-sterility observed). Updates in January 2019 address the concern of pseudoreplicates/sampling units by converting the data to plot means. Because the data is unbalanced, this enhances the efficiency/applicability of the program and makes results simpler to understand*/
+
+/*input dataset*/
+data sterility_2015;
+ input obs year $ plot loc $ block $ genotype $ entry $ no_heads head_no seed_count gape_date_julian;
+
+/*add in terms for the variance stabilizing transformations*/
+/*log(count+1), sqrt(count+3/8), and count^(2/3)*/
+data sterility_2015;
+	set sterility_2015;
+	log_count=log(seed_count+1);
+	sqrt_count=sqrt(seed_count+(3/8));
+	exp_count=(seed_count)**(2/3);
+run;
+
+proc sort data=sterility_2015;
+ by entry; run;
+
+ /*****2015*****/
+/*Zero-inflated Negative Binomial 2015 multipi*/
+proc nlmixed data=sterility_2015 maxiter=100;
+parms 	tau1=1 tau2=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 tau26=1 tau27=1 a1=0 a2=0 a4=0 a5=0 a6=0 a7=0 a8=0 a9=0 a10=0 a11=0 a12=0 a13=0 a14=0 a15=0 a16=0 a17=0 a18=0 a19=0 a20=0 a21=0 a22=0 a23=0 a24=0 a25=0 a26=0 a27=0 phi=0.5 s_block=0.1 sbt=0.2;
+ 		y=seed_count;
+
+/*note: scale=phi*/
+linpr_infl=a1*(entry='1')+a2*(entry='2')+a4*(entry='4')+a5*(entry='5')+a6*(entry='6')+a7*(entry='7')+a8*(entry='8')+a9*(entry='9')+a10*(entry='10')+a11*(entry='11')+a12*(entry='12')+a13*(entry='13')+a14*(entry='14')+a15*(entry='15')+a16*(entry='16')+a17*(entry='17')+a18*(entry='18')+a19*(entry='19')+a20*(entry='20')+a21*(entry='21')+a22*(entry='22')+a23*(entry='23')+a24*(entry='24')+a25*(entry='25')+a26*(entry='26')+a27*(entry='27'); *linear predictor for the inflation probability;
+	
+InfProb=1/(1+exp(-linpr_infl)); *logistic link;
+	
+lin_pred=tau1*(entry='1')+tau2*(entry='2')+tau4*(entry='4')+tau5*(entry='5')+tau6*(entry='6')+tau7*(entry='7')+tau8*(entry='8')+tau9*(entry='9')+tau10*(entry='10')+tau11*(entry='11')+tau12*(entry='12')+tau13*(entry='13')+tau14*(entry='14')+tau15*(entry='15')+tau16*(entry='16')+tau17*(entry='17')+tau18*(entry='18')+tau19*(entry='19')+tau20*(entry='20')+tau21*(entry='21')+tau22*(entry='22')+tau23*(entry='23')+tau24*(entry='24')+tau25*(entry='25')+tau26*(entry='26')+tau27*(entry='27')+block_eff+blk_trt_effect;
+	
+lambda=exp(lin_pred);
+agg=1/phi;
+log_choose=lgamma(y+agg)-lgamma(y+1)-lgamma(agg);
+
+if y=0 then
+ll=log(infprob+(1-infprob))*((1+lambda*phi)**(-agg));
+else 	ll=log((1-infprob))+y*log((lambda*phi)/(1+lambda*phi))-log(1+lambda*phi)/phi+log_choose;
+
+model y~general(ll);
+random block_eff~normal(0,s_block*s_block) subject=block;
+random blk_trt_effect ~ normal(0,sbt*sbt) subject=entry(block);
+
+estimate 'block variance' s_block*s_block;
+title "2015 Zero-Inflated Negative Binomial Model--muliple pi values";
+ods output ParameterEstimates=ZINB_out2015multipi;
+run;
+
+data ZINB_datascale2015multipi;
+set ZINB_out2015multipi;
+mean_lambda=exp(estimate);
+lower_mean_lambda=exp(lower);
+upper_mean_lambda=exp(upper);
+mean_pi=1/(1+exp(-estimate));
+lower_mean_pi=1/(1+exp(-lower));
+upper_mean_pi=1/(1+exp(-upper));
+run;
+
+/*Zero-inflated Negative Binomial 2015 Single Pi*/
+proc nlmixed data=sterility_2015 maxiter=100;
+parms 	tau1=1 tau2=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 tau26=1 tau27=1 a=0.1 phi=0.5 s_block=0.1 sbt=0.2;
+ 		y=seed_count;
+
+/*note: scale=phi*/
+linpr_infl=a; *linear predictor for the inflation probability;
+
+InfProb=1/(1+exp(-linpr_infl)); *logistic link;
+
+lin_pred=tau1*(entry='1')+tau2*(entry='2')+tau4*(entry='4')+tau5*(entry='5')+tau6*(entry='6')+tau7*(entry='7')+tau8*(entry='8')+tau9*(entry='9')+tau10*(entry='10')+tau11*(entry='11')+tau12*(entry='12')+tau13*(entry='13')+tau14*(entry='14')+tau15*(entry='15')+tau16*(entry='16')+tau17*(entry='17')+tau18*(entry='18')+tau19*(entry='19')+tau20*(entry='20')+tau21*(entry='21')+tau22*(entry='22')+tau23*(entry='23')+tau24*(entry='24')+tau25*(entry='25')+tau26*(entry='26')+tau27*(entry='27')+block_eff+blk_trt_effect;
+
+lambda=exp(lin_pred);
+agg=1/phi;
+log_choose=lgamma(y+agg)-lgamma(y+1)-lgamma(agg);
+if y=0 then
+ll=log(infprob+(1-infprob))*((1+lambda*phi)**(-agg));
+else 	ll=log((1-infprob))+y*log((lambda*phi)/(1+lambda*phi))-log(1+lambda*phi)/phi+log_choose;
+
+model y~general(ll);
+random block_eff~normal(0,s_block*s_block) subject=block;
+random blk_trt_effect ~ normal(0,sbt*sbt) subject=entry(block);
+estimate 'block variance' s_block*s_block;
+title "2015 Zero-Inflated Negative Binomial Model";
+ods output ParameterEstimates=ZINB_out2015singlepi;
+run;
+
+data ZINB_datascale2015singlepi;
+set ZINB_out2015singlepi;
+mean_lambda=exp(estimate);
+lower_mean_lambda=exp(lower);
+upper_mean_lambda=exp(upper);
+mean_pi=1/(1+exp(-estimate));
+lower_mean_pi=1/(1+exp(-lower));
+upper_mean_pi=1/(1+exp(-upper));
+run;
+
+/*Hurdle Negative Binomial 2015 multipi*/
+proc nlmixed data=sterility_2015 maxiter=100;
+parms 	tau1=1 tau2=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 tau26=1 tau27=1 a1=0 a2=0 a4=0 a5=0 a6=0 a7=0 a8=0 a9=0 a10=0 a11=0
+a12=0 a13=0 a14=0 a15=0 a16=0 a17=0 a18=0 a19=0 a20=0 a21=0 a22=0 a23=0 a24=0 a25=0 a26=0 a27=0 phi=0.5 s_block=0.1  sbt=0.2;
+ 		y=seed_count;
+
+/*use logit link for inflation probability*/
+linpr_infl=a1*(entry='1')+a2*(entry='2')+a4*(entry='4')+a5*(entry='5')+a6*(entry='6')+a7*(entry='7')+a8*(entry='8')+a9*(entry='9')+a10*(entry='10')+a11*(entry='11')+a12*(entry='12')+a13*(entry='13')+a14*(entry='14')+a15*(entry='15')+a16*(entry='16')+a17*(entry='17')+a18*(entry='18')+a19*(entry='19')+a20*(entry='20')+a21*(entry='21')+a22*(entry='22')+a23*(entry='23')+a24*(entry='24')+a25*(entry='25')+a26*(entry='26')+a27*(entry='27'); *linear predictor for the inflation probability;
+
+InfProb=1/(1+exp(-linpr_infl));
+
+/*Linear predictor for the treatment effects*/
+lin_pred=tau1*(entry='1')+tau2*(entry='2')+tau4*(entry='4')+tau5*(entry='5')+tau6*(entry='6')+tau7*(entry='7')+tau8*(entry='8')+tau9*(entry='9')+tau10*(entry='10')+tau11*(entry='11')+tau12*(entry='12')+tau13*(entry='13')+tau14*(entry='14')+tau15*(entry='15')+tau16*(entry='16')+tau17*(entry='17')+tau18*(entry='18')+tau19*(entry='19')+tau20*(entry='20')+tau21*(entry='21')+tau22*(entry='22')+tau23*(entry='23')+tau24*(entry='24')+tau25*(entry='25')+tau26*(entry='26')+tau27*(entry='27')+block_eff+blk_trt_effect;
+
+lambda=exp(lin_pred);
+agg=1/phi;
+
+/*hurdle log likelihood*/
+log_choose=lgamma(y+agg)-lgamma(y+1)-lgamma(agg);
+p=lambda*phi/(1+lambda*phi);
+if y=0 then ll=log(InfProb);
+else ll=log(1-InfProb)+y*log(p)+agg*log(1-p)+log_choose;
+
+model y~general(ll);
+random block_eff~normal(0,s_block*s_block) subject=block;
+random blk_trt_effect ~ normal(0,sbt*sbt) subject=entry(block);
+estimate 'block variance' s_block*s_block;
+ods output ParameterEstimates=HNB_out2015multipi;
+title '2015 Hurdle Negative Binomial Model--multiple pi values';
+run;
+
+data HNB_datascale2015multipi;
+set HNB_out2015multipi;
+mean_lambda=exp(estimate);
+lower_mean_lambda=exp(lower);
+upper_mean_lambda=exp(upper);
+mean_pi=1/(1+exp(-estimate));
+lower_mean_pi=1/(1+exp(-lower));
+upper_mean_pi=1/(1+exp(-upper));
+run;
+
+/*Hurdle Negative Binomial 2015 single pi*/
+proc nlmixed data=sterility_2015 maxiter=200 qpoints=1;
+parms 	tau1=1 tau2=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 tau26=1 tau27=1 a=0.2 phi=0.5 s_block=0.1 sbt=0.2;
+y=seed_count;
+
+/*use logit link for inflation probability*/
+linpr_infl=a; *linear predictor for the inflation probability;
+InfProb=1/(1+exp(-linpr_infl));
+
+/*Linear predictor for the treatment effects*/
+lin_pred=tau1*(entry='1')+tau2*(entry='2')+tau4*(entry='4')+tau5*(entry='5')+tau6*(entry='6')+tau7*(entry='7')+tau8*(entry='8')+tau9*(entry='9')+tau10*(entry='10')+tau11*(entry='11')+tau12*(entry='12')+tau13*(entry='13')+tau14*(entry='14')+tau15*(entry='15')+tau16*(entry='16')+tau17*(entry='17')+tau18*(entry='18')+tau19*(entry='19')+tau20*(entry='20')+tau21*(entry='21')+tau22*(entry='22')+tau23*(entry='23')+tau24*(entry='24')+tau25*(entry='25')+tau26*(entry='26')+tau27*(entry='27')+block_eff+blk_trt_effect;
+
+lambda=exp(lin_pred);
+agg=1/phi;
+
+/*hurdle log likelihood*/
+log_choose=lgamma(y+agg)-lgamma(y+1)-lgamma(agg);
+p=lambda*phi/(1+lambda*phi);
+if y=0 then ll=log(InfProb);
+else ll=log(1-InfProb)+y*log(p)+agg*log(1-p)+log_choose;
+
+model y~general(ll);
+random block_eff~normal(0,s_block*s_block) subject=block;
+random blk_trt_effect ~ normal(0,sbt*sbt) subject=entry(block);
+estimate 'block variance' s_block*s_block;
+ods output ParameterEstimates=HNB_out2015singlepi;
+title '2015 Hurdle Negative Binomial Model';
+run;
+
+data HNB_datascale2015singlepi;
+set HNB_out2015singlepi;
+mean_lambda=exp(estimate);
+lower_mean_lambda=exp(lower);
+upper_mean_lambda=exp(upper);
+mean_pi=1/(1+exp(-estimate));
+lower_mean_pi=1/(1+exp(-lower));
+upper_mean_pi=1/(1+exp(-upper));
+run;
+
+/*gaussian 2015*/
+proc glimmix data=sterility_2015;
+class entry plot block genotype;
+model seed_count=entry/d=n noint cl;
+random intercept entry/subject=block;
+lsmeans entry/cl;
+title '2015 gaussian glimmix';
+ods output lsmeans=gauss_2015;
+run;
+
+/*log transform 2015*/
+/*link function: log(count+1) therefore ilink function: exp(estimate)-1*/
+proc glimmix data=sterility_2015;
+class entry plot block genotype;
+model log_count=entry/d=n s noint cl;
+random intercept entry/subject=block;
+title '2015 glimmix-log transform';
+ods output parameterestimates=log_count_2015out;
+run;
+data log_count_backtransformed2015;
+set log_count_2015out;
+Estimate_datascale=(exp(estimate)-1);
+Lower_datascale=(exp(lower)-1);
+Upper_datascale=(exp(upper)-1);
+run;
+
+/*sqrt transform 2015*/
+/*link function: sqrt(count+3/8) therefore ilink function: ((estimate**2)-3/8)*/
+proc glimmix data=sterility_2015;
+class entry plot block genotype;
+model sqrt_count=entry/d=n s noint cl;
+random intercept entry/subject=block;
+title '2015 glimmix-sqrt transform';
+ods output parameterestimates=sqrt_count_2015out;
+run;
+data sqrt_count_backtransformed2015;
+set sqrt_count_2015out;
+Estimate_datascale=((estimate**2)-(3/8));
+Lower_datascale=((lower**2)-(3/8));
+Upper_datascale=((upper**2)-(3/8));
+run;
+
+/*exp transform 2015*/
+/*link function: (count)**(2/3) therefore the ilink function: estimate**(3/2)*/
+proc glimmix data=sterility_2015;
+class entry plot block genotype;
+model exp_count=entry/d=n s noint cl;
+random intercept entry/subject=block;
+title '2015 glimmix-exponential transform';
+ods output parameterestimates=exp_count_2015out;
+run;
+data exp_count_backtransformed2015;
+set exp_count_2015out;
+Estimate_datascale=(estimate**(3/2));
+Lower_datascale=(lower**(3/2));
+Upper_datascale=(upper**(3/2));
+run;		
+
+/*poisson transform 2015*/
+proc glimmix data=sterility_2015 method=laplace;
+class entry plot block genotype;
+model seed_count=entry/d=poisson s noint cl;
+random intercept entry/subject=block;
+lsmeans entry/ilink cl;
+title '2015 glimmix-basic poisson';
+ods output lsmeans=poisson_2015;
+run;
+
+/*negative binomial transform 2015*/
+proc glimmix data=sterility_2015 method=laplace;
+class entry plot block genotype;
+model seed_count=entry/d=nb s noint cl;
+random intercept/subject=block;
+lsmeans entry/ilink cl;
+title '2015 glimmix-negative binomial';
+ods output lsmeans=nb_2015;
+run;
