@@ -1,0 +1,55 @@
+/*input dataset*/
+data sterility;
+input obs year $ plot loc $ block $ genotype $ entry $ no_heads head_no seed_count gape_date_julian;
+
+/*set threshold of 7 seeds for ~75% sterility*/
+data sterility; set sterility; binom=1; if seed_count>7 then binom=0;
+run;
+
+/*subset data by year*/
+data hcb_15; set sterility; if year='2016' then delete; run;
+data hcb_16; set sterility; if year='2015' then delete; run;
+proc sort data=hcb_15; by entry; run;
+proc sort data=hcb_16; by entry; run;
+
+/*logit model 2015*/
+proc glimmix data=hcb_15 method=laplace;
+class block genotype entry;
+model binom=entry/link=logit;
+random intercept entry/subject=block;
+lsmeans entry/ilink cl;
+ods output lsmeans=logit_15;
+title 'Logit 2015';
+run;
+
+/*logit model 2016*/
+proc glimmix data=hcb_16 method=laplace;
+class block genotype entry;
+model binom=entry/link=logit;
+random intercept entry/subject=block;
+lsmeans entry/ilink cl;
+ods output lsmeans=logit_16;
+title 'Logit 2016';
+run;
+
+/*probit model 2015*/
+proc glimmix data=hcb_15 method=laplace;
+nloptions maxiter=500;
+class block genotype entry;
+model binom=entry/link=probit;
+random intercept entry/subject=block;
+lsmeans entry/ilink cl;
+ods output lsmeans=probit_15;
+title 'Probit 2015';
+run;
+
+/*probit model 2016*/
+proc glimmix data=hcb_16 method=laplace;
+nloptions maxiter=500;
+class block genotype entry;
+model binom=entry/link=probit;
+random intercept entry/subject=block;
+lsmeans entry/ilink cl;
+ods output lsmeans=probit_16;
+title 'Probit 2016';
+run;
