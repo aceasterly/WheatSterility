@@ -1,0 +1,504 @@
+/*HCB simulation */
+/* build two datasets, one for the single pi value 
+and one for the multiple pi values then we can answer for both cases and see how the estimates and power changes numbers for mu and p were selected from estimates of the HCB in 2015 using the ZIP model cannot select p=0 or p=1 because code will not converge, therefore 0.01 and 0.99 respectively*/
+/*by AC Easterly and WW Stroup*/
+/*2019 02 07*/
+
+data pi; /*looks at multiple pi values for the inflation parameter*/
+seed=11291983;
+bv=0.1;
+do expt=1 to 500; do blk=1 to 4; do eu=1 to 5; do trt=1 to 25; p1=0.15;p2=0.77;p3=0.22;p4=0.01;p5=0.21;p6=0.45;p7=0.01;p8=0.99;
+p9=0.74;p10=0.51;p11=0.34;p12=0.37;p13=0.35;p14=0.11;p15=0.43;p16=0.63;
+p17=0.99;p18=0.4;p19=0.28;p20=0.48;p21=0.56;p22=0.63;p23=0.27;p24=0.51;p25=0.33;
+
+bj=sqrt(bv)*rannor(seed);
+linpred_p=(trt=1)*p1 + (trt=2)*p2 + (trt=3)*p3 + (trt=4)*p4 + (trt=5)*p5 + (trt=6)*p6 + (trt=7)*p7 + (trt=8)*p8 + (trt=9)*p9 + (trt=10)*p10 + (trt=11)*p11 + (trt=12)*p12 +(trt=13)*p13 + (trt=14)*p14 + (trt=15)*p15 + (trt=16)*p16 + (trt=17)*p17 + (trt=18)*p18 + (trt=19)*p19 + (trt=20)*p20 + (trt=21)*p21 +	(trt=22)*p22 + (trt=23)*p23 + (trt=24)*p24 + (trt=25)*p25;
+logit_multi=log(linpred_p/(1-linpred_p));
+eta_multi=logit_multi+bj;
+prob_multi=1/(1+exp(-eta_multi));
+y_mp=rand('BINOMIAL',prob_multi,1); 
+
+p_single=0.35;
+logit_single=log(p_single/(1-p_single));
+eta_single=logit_single+bj;
+prob_single=1/(1+exp(-eta_single));
+y_sp=rand('BINOMIAL',prob_single,1);
+output; end; end; end; end; 
+
+data pi; set pi; drop seed bv p1 p2 p3 p4 p5 p6 p7 p8 p9 p10 p11 p12 p13 p14 p15 p16 p17 p18 p19 p20 p21 p22 p23 p24 p25; run;
+
+proc sort data=pi; by expt blk trt eu; run;
+
+/*build the simulation for the count data*/
+data negbin_sim;
+seed=11291983;
+bv=0; 
+do expt=1 to 500; do blk=1 to 4; do eu=1 to 5; do trt=1 to 25; 
+mu1=6;mu2=4;mu3=3;mu4=4;mu5=8;mu6=5;mu7=9;mu8=4;mu9=5;mu10=8;
+mu11=8;mu12=13;mu13=10;mu14=8;mu15=11;mu16=7;mu17=8;mu18=12;mu19=4;
+mu20=8;mu21=16;mu22=9;mu23=27;mu24=18;mu25=8;
+bj=sqrt(bv)*rannor(seed);
+mu=(trt=1)*mu1+(trt=2)*mu2+(trt=3)*mu3+(trt=4)*mu4+(trt=5)*mu5+
+	(trt=6)*mu6+(trt=7)*mu7+(trt=8)*mu8+(trt=9)*mu9+(trt=10)*mu10+
+	(trt=11)*mu11+(trt=12)*mu12+(trt=13)*mu13+(trt=14)*mu14+
+	(trt=15)*mu15+(trt=16)*mu16+(trt=17)*mu17+(trt=18)*mu18+
+	(trt=19)*mu19+(trt=20)*mu20+(trt=21)*mu21+(trt=22)*mu22+
+	(trt=23)*mu23+(trt=24)*mu24+(trt=25)*mu25;
+eta=log(mu)+bj;
+lambda=exp(eta);
+y_nb=ranpoi(seed,lambda);
+output; end; end; end; end;
+
+data negbin_sim; set negbin_sim; drop seed mu1 mu2 mu3 mu4 mu5 
+	mu6 mu7 mu8 mu9 mu10 mu11 mu12 mu13 mu14 mu15 mu16 mu17
+	mu18 mu19 mu20 mu21 mu22 mu23 mu24 mu25; run;
+
+proc sort data=negbin_sim;
+	by expt blk trt eu; run;
+
+/*combine data sets for single y values to use in analyses*/
+data combined; 
+merge pi negbin_sim;
+	by expt blk trt eu;
+y_singlepi=y_sp*y_nb; y_multipi=y_mp*y_nb;
+run;
+
+/*drop unnecessary variables for final dataset with just design and counts*/
+data final; set combined;
+	drop linpred_p logit_multi eta_multi prob_multi prob_single bj y_mp p_single logit_single eta_single y_sp mu eta lambda y_nb bv; run;
+
+/*data transforms*/
+
+data final; set final; 
+log_multi=log(y_multipi+1);
+log_single=log(y_singlepi+1);
+sqrt_multi=sqrt(y_multipi+(3/8));
+sqrt_single=sqrt(y_singlepi+(3/8));
+exp_multi=(y_multipi**(2/3));
+exp_single=(y_singlepi**(2/3)); run;
+
+/*univariate statistics to check that the distributions look appropriate*/
+proc univariate data=final;
+var y_singlepi y_multipi log_multi log_single sqrt_multi sqrt_single exp_multi exp_single;
+histogram/midpoints=0,1,2,3,4,5;
+title 'univariate for all transforms';
+run;
+
+/*gaussian*/
+proc glimmix data=final;
+by expt;
+class trt blk eu;
+model y_singlepi=trt/d=n;
+random intercept/subject=blk;
+lsmeans trt/cl;
+ods output lsmeans=gauss_lsm tests3=gauss_f covparms=gauss_var;
+title 'gaussian single pi simulation';
+run;
+
+data gauss_f; set gauss_f;
+	reject=(probF<0.05); run; 
+proc means data=gauss_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data gauss_lsm; set gauss_lsm;
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+	cover=(lower<truth<upper); run;
+proc means data=gauss_lsm; var cover; output out=gauss_mean; run; 
+
+/*negative binomial*/
+proc glimmix data=final method=laplace;
+by expt;
+class trt blk eu;
+model y_singlepi=trt/d=nb;
+random intercept/subject=blk;
+lsmeans trt/ilink cl;
+title 'negative binomial single pi simulation';
+ods output lsmeans=nb_lsm tests3=nb_f covparms=nb_var;
+run;
+
+data nb_f; set nb_f;
+reject=(probF<0.05); run; 
+proc means data=nb_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data nb_lsm; set nb_lsm;
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+cover=(lowermu<truth<uppermu); run;
+proc means data=nb_lsm; var cover; output out=nb_mean; run;  
+
+/*poisson*/
+proc glimmix data=final method=laplace;
+by expt;
+class trt blk eu;
+model y_singlepi=trt/d=poi;
+random intercept/subject=blk;
+lsmeans trt/ilink cl;
+title 'poisson single pi simulation';
+ods output lsmeans=poisson_lsm tests3=poisson_f covparms=poisson_var;
+run;
+
+/*now to summarize output across experiments*/
+data poisson_f; set poisson_f;
+reject=(probF<0.05); run; 
+proc means data=poisson_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data poisson_lsm; set poisson_lsm;
+/*convert estimates back to data scale*/
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+cover=(lowermu<truth<uppermu); run;
+proc means data=poisson_lsm; var cover; output out=poisson_mean; run;  
+
+/*log transform*/
+proc glimmix data=final;
+by expt;
+class trt blk eu;
+model log_single=trt/d=n;
+random intercept/subject=blk;
+lsmeans trt/cl;
+ods output lsmeans=log_lsm tests3=log_f covparms=log_var;
+title 'log transform single pi simulation';
+run;
+
+/*now to summarize output across experiments*/
+data log_f; set log_f;
+reject=(probF<0.05); run; 
+proc means data=log_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data log_lsm; set log_lsm;
+/*convert estimates back to data scale*/
+mu=(exp(estimate)-1); lower_mu=(exp(lower)-1); upper_mu=(exp(upper)-1);
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+cover=(lower_mu<truth<upper_mu); run;
+proc means data=log_lsm; var cover; output out=log_mean;run;  
+
+/*sqrt transform*/
+proc glimmix data=final;
+by expt;
+class trt blk eu;
+model sqrt_single=trt/d=n;
+random intercept/subject=blk;
+lsmeans trt/cl;
+title 'sqrt transform single pi simulation';
+ods output lsmeans=sqrt_lsm tests3=sqrt_f covparms=sqrt_var;
+run;
+
+/*now to summarize output across experiments*/
+data sqrt_f; set sqrt_f;
+reject=(probF<0.05); run; 
+proc means data=sqrt_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data sqrt_lsm; set sqrt_lsm;
+/*convert estimates back to data scale*/
+mu=((estimate**2)-(3/8)); lower_mu=((lower**2)-(3/8)); upper_mu=((upper**2)-(3/8));
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+cover=(lower_mu<truth<upper_mu); run;
+proc means data=sqrt_lsm; var cover; output out=sqrt_mean; run;  
+
+/*exp transform*/
+proc glimmix data=final;
+by expt;
+class trt blk eu;
+model exp_single=trt/d=n;
+random intercept/subject=blk;
+lsmeans trt/cl;
+ods output lsmeans=exp_lsm tests3=exp_f covparms=exp_var;
+title 'exp transform single pi simulation';
+run;
+
+/*now to summarize output across experiments*/
+data exp_f; set exp_f;
+reject=(probF<0.05); run; 
+proc means data=sqrt_f; var reject; run;
+
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data exp_lsm; set exp_lsm;
+/*convert estimates back to data scale*/
+mu=(estimate**(3/2)); lower_mu=(abs(lower)**(3/2)); upper_mu=(upper**(3/2));
+if trt='1' then truth=6;
+if trt='2' then truth=4;
+if trt='3' then truth=3;
+if trt='4' then truth=4;
+if trt='5' then truth=8;
+if trt='6' then truth=5;
+if trt='7' then truth=9;
+if trt='8' then truth=4;
+if trt='9' then truth=5;
+if trt='10' then truth=8;
+if trt='11' then truth=8;
+if trt='12' then truth=13;
+if trt='13' then truth=10;
+if trt='14' then truth=8;
+if trt='15' then truth=11;
+if trt='16' then truth=7;
+if trt='17' then truth=8;
+if trt='18' then truth=12;
+if trt='19' then truth=4;
+if trt='20' then truth=8;
+if trt='21' then truth=16;
+if trt='22' then truth=9;
+if trt='23' then truth=27;
+if trt='24' then truth=18;
+if trt='25' then truth=8;
+cover=(lower_mu<truth<upper_mu); run;
+proc means data=exp_lsm; var cover; output out=exp_mean; run;  
+
+/*HNB sp*/
+proc nlmixed data=final tech=congra;
+by expt;
+parms 	tau1=1 tau2=1 tau3=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 a=0.2 scale=0.5 s_block=0.1;
+ 	
+y=y_singlepi;
+
+/*use logit link for inflation probability*/
+linpr_infl=a; *linear predictor for the inflation probability;
+InfProb=1/(1+exp(-linpr_infl));
+/*Linear predictor for the treatment effects*/
+lin_pred=tau1*(trt=1)+tau2*(trt=2)+tau3*(trt=3)+tau4*(trt=4)+
+tau5*(trt=5)+tau6*(trt=6)+tau7*(trt=7)+tau8*(trt=8)+tau9*(trt=9)+tau10*(trt=10)+tau11*(trt=11)+tau12*(trt=12)+tau13*(trt=13)+tau14*(trt=14)+tau15*(trt=15)+tau16*(trt=16)+tau17*(trt=17)+tau18*(trt=18)+tau19*(trt=19)+tau20*(trt=20)+
+tau21*(trt=21)+tau22*(trt=22)+tau23*(trt=23)+tau24*(trt=24)+tau25*(trt=25)+block_eff;
+
+lambda=exp(lin_pred);
+agg=1/scale;
+
+/*hurdle log likelihood*/
+log_choose=lgamma(y+agg)-lgamma(y+1)-lgamma(agg);
+p=lambda*scale/(1+lambda*scale);
+if y=0 then ll=log(InfProb);
+else ll=log(1-InfProb)+y*log(p)+agg*log(1-p)+log_choose;
+
+model y~general(ll);
+random block_eff~normal(0,s_block*s_block) subject=blk;
+estimate 'block variance' s_block*s_block;
+ods output ParameterEstimates=HNB_lsm ConvergenceStatus=CS;
+title 'Simulated Hurdle Negative Binomial Model single pi';
+run;
+
+proc print data=CS;run;
+
+data HNB_lsm; set HNB_lsm;
+if Parameter='a' then delete;
+if Parameter='scale' then delete;
+if Parameter='s_block' then delete;
+if Parameter='tau1' then truth=6;
+if Parameter='tau2' then truth=4;
+if Parameter='tau3' then truth=3;
+if Parameter='tau4' then truth=4;
+if Parameter='tau5' then truth=8;
+if Parameter='tau6' then truth=5;
+if Parameter='tau7' then truth=9;
+if Parameter='tau8' then truth=4;
+if Parameter='tau9' then truth=5;
+if Parameter='tau10' then truth=8;
+if Parameter='tau11' then truth=8;
+if Parameter='tau12' then truth=13;
+if Parameter='tau13' then truth=10;
+if Parameter='tau14' then truth=8;
+if Parameter='tau15' then truth=11;
+if Parameter='tau16' then truth=7;
+if Parameter='tau17' then truth=8;
+if Parameter='tau18' then truth=12;
+if Parameter='tau19' then truth=4;
+if Parameter='tau20' then truth=8;
+if Parameter='tau21' then truth=16;
+if Parameter='tau22' then truth=9;
+if Parameter='tau23' then truth=27;
+if Parameter='tau24' then truth=18;
+if Parameter='tau25' then truth=8;
+/*convert estimates back to data scale*/
+lowermu=exp(lower); mu=exp(estimate); uppermu=exp(upper); 
+cover=(lowermu<truth<uppermu); run;
+proc means data=HNB_lsm; var cover; output out=hnbsp_mean; run; 
+
+/*ZINB sp*/
+proc nlmixed data=final tech=congra;
+	by expt;
+	*where expt=1;
+parms 	tau1=1 tau2=1 tau3=1 tau4=1 tau5=1 tau6=1 tau7=1 tau8=1 tau9=1 tau10=1 tau11=1 tau12=1 tau13=1 tau14=1 tau15=1 tau16=1 tau17=1 tau18=1 tau19=1 tau20=1 tau21=1 tau22=1 tau23=1 tau24=1 tau25=1 s_block=2 a=0.2 scale=0.4;
+
+y=y_singlepi;
+
+linpr_infl=a; *linear predictor for the inflation probability;
+infprob=1/(1+exp(-linpr_infl)); *logistic link;
+*linear predictor for the model--cell means form;
+lin_pred=tau1*(trt=1)+tau2*(trt=2)+tau3*(trt=3)+tau4*(trt=4)+
+tau5*(trt=5)+tau6*(trt=6)+tau7*(trt=7)+tau8*(trt=8)+
+tau9*(trt=9)+tau10*(trt=10)+tau11*(trt=11)+tau12*(trt=12)+
+tau13*(trt=13)+tau14*(trt=14)+tau15*(trt=15)+tau16*(trt=16)+
+tau17*(trt=17)+tau18*(trt=18)+tau19*(trt=19)+tau20*(trt=20)+
+tau21*(trt=21)+tau22*(trt=22)+tau23*(trt=23)+tau24*(trt=24)+
+tau25*(trt=25)+block_eff;
+lambda=exp(lin_pred);
+
+/* build "y+n+1 chose y" part of neg bin logL. note SAS has no combinatoric "choose" function, so you use the gamma function. LGamma is the log(gamma) function*/
+
+nn=1/scale;
+/* note "pp=nn/(l_hat+nn)" is the prob in neg bin pdf you see in Math Stat class*/
+log_choose=lgamma(y+nn)-lgamma(y+1)-lgamma(nn);
+/* define logL for ZINB                                 */
+if y=0 then ll=log(infprob +(1-infprob))-log(1+lambda*scale)/scale;
+else ll=log(1-infprob)+y*log(lambda*scale/(1+lambda*scale))-log(1+lambda*scale)/scale+log_choose;
+/* model & random statement                             */
+model y~general(ll);
+random block_eff ~ normal([0],[s_block*s_block]) subject=blk;
+estimate 'inflation probability' infprob;
+title "simulated Zero-Inflated Negative Binomial Model single pi";
+ods output ParameterEstimates=ZINB_lsm;
+run;
+/*this tells us the percentage of coverage and how frequently the truth falls in the confidence intervals that the model we are using sets*/
+data ZINB_lsm; set ZINB_lsm;
+if Parameter='a' then delete;
+if Parameter='s_block' then delete;
+if Parameter='tau1' then truth=6;
+if Parameter='tau2' then truth=4;
+if Parameter='tau3' then truth=3;
+if Parameter='tau4' then truth=4;
+if Parameter='tau5' then truth=8;
+if Parameter='tau6' then truth=5;
+if Parameter='tau7' then truth=9;
+if Parameter='tau8' then truth=4;
+if Parameter='tau9' then truth=5;
+if Parameter='tau10' then truth=8;
+if Parameter='tau11' then truth=8;
+if Parameter='tau12' then truth=13;
+if Parameter='tau13' then truth=10;
+if Parameter='tau14' then truth=8;
+if Parameter='tau15' then truth=11;
+if Parameter='tau16' then truth=7;
+if Parameter='tau17' then truth=8;
+if Parameter='tau18' then truth=12;
+if Parameter='tau19' then truth=4;
+if Parameter='tau20' then truth=8;
+if Parameter='tau21' then truth=16;
+if Parameter='tau22' then truth=9;
+if Parameter='tau23' then truth=27;
+if Parameter='tau24' then truth=18;
+if Parameter='tau25' then truth=8;
+/*convert estimates back to data scale*/
+lowermu=exp(lower); mu=exp(estimate); uppermu=exp(upper); 
+cover=(lowermu<truth<uppermu); run;
+proc means data=ZINB_lsm; var cover; output out=zinbsp_mean; run; 
+
+
